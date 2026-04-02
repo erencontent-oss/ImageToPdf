@@ -1,11 +1,53 @@
-<div align="center">
+# Car Image PDF Tool - Vercel Deployment
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+This app is ready to be deployed to Vercel.
 
-  <h1>Built with AI Studio</h2>
+## 1. Prerequisites
+- A Vercel account.
+- Node.js installed locally.
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 2. Installation
+Install dependencies:
+```bash
+npm install sharp pdf-lib express multer cors
+```
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+## 3. Vercel Configuration
+Create a `vercel.json` in the root:
+```json
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/generate.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/generate",
+      "dest": "/api/generate.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}
+```
 
-</div>
+## 4. Deployment
+1. Push your code to GitHub.
+2. Connect your repo to Vercel.
+3. Vercel will automatically detect the settings and deploy.
+
+## 5. Local Development
+Run the server:
+```bash
+npm run dev
+```
+The app will be available at `http://localhost:3000`.

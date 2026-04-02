@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Car Image PDF Tool</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #0f172a; padding: 20px; max-width: 600px; margin: 0 auto; }
+        h1 { text-align: center; font-size: 24px; margin-bottom: 10px; }
+        p { text-align: center; color: #64748b; font-size: 14px; margin-bottom: 30px; }
+        .slot { background: white; border: 2px dashed #e2e8f0; border-radius: 12px; padding: 15px; margin-bottom: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .slot label { font-weight: bold; font-size: 14px; }
+        .slot input { font-size: 14px; }
+        button { width: 100%; padding: 15px; background-color: #2563eb; color: white; border: none; border-radius: 12px; font-weight: bold; font-size: 16px; cursor: pointer; margin-top: 20px; }
+        button:disabled { background-color: #94a3b8; cursor: not-allowed; }
+        #loading { display: none; text-align: center; margin-top: 20px; font-weight: bold; color: #2563eb; }
+        #download { display: none; text-align: center; margin-top: 20px; }
+        #download a { display: inline-block; padding: 15px 30px; background-color: #16a34a; color: white; text-decoration: none; border-radius: 12px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Автомашины зургийн PDF хэрэгсэл</h1>
+    <p>PDF файл үүсгэхийн тулд 6 зураг болон VIN дугаар оруулна уу.</p>
+    
+    <form id="pdfForm">
+        <div class="slot" style="border-style: solid; border-color: #2563eb; background: #eff6ff;">
+            <label>Арлын дугаар сүүлийн 4 орон</label>
+            <input type="text" name="vin" id="vinInput" required maxlength="4" style="width: 120px; padding: 10px; border-radius: 8px; border: 1px solid #bfdbfe; font-family: monospace; font-size: 16px; text-align: center;">
+        </div>
+
+        <div class="slot">
+            <label>1. Урд тал</label>
+            <input type="file" name="images" accept="image/*" required>
+        </div>
+        <div class="slot">
+            <label>2. Ар тал</label>
+            <input type="file" name="images" accept="image/*" required>
+        </div>
+        <div class="slot">
+            <label>3. Зүүн тал</label>
+            <input type="file" name="images" accept="image/*" required>
+        </div>
+        <div class="slot">
+            <label>4. Баруун тал</label>
+            <input type="file" name="images" accept="image/*" required>
+        </div>
+        <div class="slot">
+            <label>5. Арлын дугаар (VIN)</label>
+            <input type="file" name="images" accept="image/*" required>
+        </div>
+        <div class="slot">
+            <label>6. Гүйлт (Одометр)</label>
+            <input type="file" name="images" accept="image/*" required>
+        </div>
+        
+        <button type="submit" id="submitBtn">PDF файл үүсгэх</button>
+    </form>
+
+    <div id="loading">PDF боловсруулж байна... Түр хүлээнэ үү.</div>
+    <div id="download">
+        <a id="downloadLink" href="#" download="car_images.pdf">car_images.pdf татах</a>
+    </div>
+
+    <script>
+        const form = document.getElementById('pdfForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const loading = document.getElementById('loading');
+        const download = document.getElementById('download');
+        const downloadLink = document.getElementById('downloadLink');
+
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            submitBtn.disabled = true;
+            loading.style.display = 'block';
+            download.style.display = 'none';
+
+            const formData = new FormData(form);
+
+            try {
+                const response = await fetch('/api/generate', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error('Generation failed');
+
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = 'car_images.pdf';
+                if (contentDisposition && contentDisposition.includes('filename=')) {
+                    filename = contentDisposition.split('filename=')[1].replace(/"/g, '');
+                }
+
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                downloadLink.href = url;
+                downloadLink.download = filename;
+                downloadLink.innerText = filename + ' татах';
+                download.style.display = 'block';
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                submitBtn.disabled = false;
+                loading.style.display = 'none';
+            }
+        };
+    </script>
+</body>
+</html>
