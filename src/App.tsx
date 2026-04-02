@@ -36,57 +36,84 @@ interface ImageFile {
 }
 
 export default function App() {
-  const [images, setImages] = useState<Record<string, ImageFile>>({});
+  const [images, setImages] = useState<ImageFile[]>([]);
   const [vin, setVin] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [pdfData, setPdfData] = useState<{ url: string; filename: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeSlot, setActiveSlot] = useState<string | null>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || !activeSlot) return;
+    if (!files) return;
 
-    const file = files[0];
-    const newImages = { ...images };
+    const selectedFiles = Array.from(files) as File[];
     
-    // Cleanup old preview if exists
-    if (newImages[activeSlot]) {
-      URL.revokeObjectURL(newImages[activeSlot].preview);
+    if (selectedFiles.length !== 6) {
+      setError(`Та ${selectedFiles.length} зураг сонгосон байна. Яг 6 зураг сонгох шаардлагатай.`);
+      setImages([]);
+      return;
     }
 
-    newImages[activeSlot] = {
-      id: activeSlot,
+    // Cleanup old previews
+    images.forEach(img => URL.revokeObjectURL(img.preview));
+
+    const newImages = selectedFiles.map((file, index) => ({
+      id: `img-${index}-${Date.now()}`,
       file,
       preview: URL.createObjectURL(file),
-    };
+    }));
 
     setImages(newImages);
     setPdfData(null);
-    setActiveSlot(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    setError(null);
   };
 
-  const removeImage = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const newImages = { ...images };
-    if (newImages[id]) {
-      URL.revokeObjectURL(newImages[id].preview);
-      delete newImages[id];
-    }
-    setImages(newImages);
-    setPdfData(null);
+  const resizeImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const maxSide = 1200;
+
+          if (width > height) {
+            if (width > maxSide) {
+              height *= maxSide / width;
+              width = maxSide;
+            }
+          } else {
+            if (height > maxSide) {
+              width *= maxSide / height;
+              height = maxSide;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          canvas.toBlob((blob) => {
+            resolve(blob || file);
+          }, 'image/jpeg', 0.8);
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const generatePDF = async () => {
-    if (Object.keys(images).length !== 6) {
-      setError('Эхлээд 6 зургаа бүгдийг нь оруулна уу.');
+    if (images.length !== 6) {
+      setError('Яг 6 зураг сонгох шаардлагатай.');
       return;
     }
 
     if (!vin || vin.length < 4) {
-      setError('Арлын дугаарыг (VIN) зөв оруулна уу (хамгийн багадаа сүүлийн 4 орон).');
+      setError('Арлын дугаар сүүлийн 4 оронг зөв оруулна уу.');
       return;
     }
 
@@ -94,26 +121,35 @@ export default function App() {
     setError(null);
     setPdfData(null);
 
-    const formData = new FormData();
-    formData.append('vin', vin);
-    // Append images in order of SLOTS
-    SLOTS.forEach(slot => {
-      formData.append('images', images[slot.id].file);
-    });
-
     try {
+      const formData = new FormData();
+      formData.append('vin', vin);
+      
+      // Resize images on client side before uploading
+      for (const img of images) {
+        const resizedBlob = await resizeImage(img.file);
+        formData.append('images', resizedBlob, `${img.id}.jpg`);
+      }
+
       const response = await fetch('/api/generate', {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'PDF үүсгэхэд алдаа гарлаа');
+        const errorText = await response.text();
+        let errorMessage = 'PDF үүсгэхэд алдаа гарлаа';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'car_images.pdf';
+      let filename = `${vin.slice(-4)}.pdf`;
       if (contentDisposition && contentDisposition.includes('filename=')) {
         filename = contentDisposition.split('filename=')[1].replace(/"/g, '');
       }
@@ -128,7 +164,7 @@ export default function App() {
     }
   };
 
-  const allUploaded = Object.keys(images).length === 6;
+  const allUploaded = images.length === 6;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 pb-24 md:p-8">
@@ -146,7 +182,7 @@ export default function App() {
             Автомашины зургийн PDF хэрэгсэл
           </h1>
           <p className="text-slate-500 max-w-sm mx-auto text-sm">
-            Шаардлагатай 6 зургийг оруулна уу. Бид зургийн хэмжээг өөрчилж, шахаж, 2МБ-аас бага хэмжээтэй PDF файл болгоно.
+            6 зургаа нэг дор сонгоод оруулна уу. Бид зургийн хэмжээг өөрчилж, 2МБ-аас бага PDF файл болгоно.
           </p>
         </header>
 
@@ -163,71 +199,62 @@ export default function App() {
             maxLength={4}
             className="w-32 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all text-lg font-mono text-center"
           />
-          <p className="text-[10px] text-slate-400 mt-2">PDF файл нь VIN дугаарын сүүлийн 4 оронгоор нэрлэгдэх болно.</p>
         </div>
 
-        {/* Hidden File Input */}
-        <input 
-          type="file" 
-          accept="image/*"
-          className="hidden"
-          ref={fileInputRef}
-          onChange={handleFileSelect}
-        />
+        {/* Multi-upload Area */}
+        <div className="mb-8">
+          <input 
+            type="file" 
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            accept="image/*"
+            multiple
+            className="hidden"
+          />
+          
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full py-8 border-2 border-dashed border-slate-300 rounded-3xl bg-white hover:bg-slate-50 hover:border-blue-400 transition-all flex flex-col items-center justify-center gap-3 group"
+          >
+            <div className="p-4 bg-blue-50 text-blue-600 rounded-full group-hover:scale-110 transition-transform">
+              <ImageIcon className="w-8 h-8" />
+            </div>
+            <div className="text-center">
+              <p className="font-bold text-slate-700">Зургаа сонгох (6 зураг)</p>
+              <p className="text-xs text-slate-400 mt-1">6 зургаа зэрэг идэвхжүүлээд сонгоно уу</p>
+            </div>
+          </button>
+        </div>
 
-        {/* Slots Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-          {SLOTS.map((slot, index) => (
-            <motion.div
-              key={slot.id}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: index * 0.05 }}
-              onClick={() => {
-                setActiveSlot(slot.id);
-                fileInputRef.current?.click();
-              }}
-              className={`relative group aspect-video rounded-2xl border-2 border-dashed transition-all overflow-hidden cursor-pointer ${
-                images[slot.id] 
-                  ? 'border-blue-500 bg-blue-50' 
-                  : 'border-slate-200 bg-white hover:border-blue-300'
-              }`}
-            >
-              {images[slot.id] ? (
-                <>
-                  <img 
-                    src={images[slot.id].preview} 
-                    alt={slot.label}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black/20" />
-                  <button 
-                    onClick={(e) => removeImage(slot.id, e)}
-                    className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors shadow-md z-10"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                  <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent">
-                    <p className="text-xs text-white font-medium flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
-                      {slot.label}
-                    </p>
-                  </div>
-                </>
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center">
-                  <div className="p-3 bg-slate-100 text-slate-400 rounded-xl mb-2 group-hover:bg-blue-100 group-hover:text-blue-500 transition-colors">
-                    {slot.icon}
-                  </div>
-                  <p className="text-sm font-semibold text-slate-500 group-hover:text-blue-600 transition-colors">
-                    {slot.label}
-                  </p>
-                  <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">Дарж зураг оруулна уу</p>
+        {/* Selected Images Preview */}
+        {images.length > 0 && (
+          <div className="grid grid-cols-3 gap-3 mb-8">
+            {images.map((img, index) => (
+              <motion.div 
+                key={img.id}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-white"
+              >
+                <img 
+                  src={img.preview} 
+                  alt={`Preview ${index}`} 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute top-1 left-1 bg-black/50 text-white text-[10px] px-1.5 py-0.5 rounded-md backdrop-blur-sm">
+                  {index + 1}
                 </div>
-              )}
-            </motion.div>
-          ))}
-        </div>
+              </motion.div>
+            ))}
+            {/* Fill empty slots if less than 6 */}
+            {Array.from({ length: Math.max(0, 6 - images.length) }).map((_, i) => (
+              <div key={`empty-${i}`} className="aspect-square rounded-xl border border-dashed border-slate-200 bg-slate-50/50 flex items-center justify-center">
+                <ImageIcon className="w-6 h-6 text-slate-200" />
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Error Message */}
         <AnimatePresence>
@@ -236,9 +263,9 @@ export default function App() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="mb-6 p-4 bg-red-50 text-red-600 rounded-2xl text-sm flex items-start gap-3 border border-red-100"
+              className="mb-6 p-4 bg-red-50 text-red-600 rounded-2xl text-sm font-medium flex items-center gap-2 border border-red-100"
             >
-              <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
+              <AlertCircle className="w-4 h-4 shrink-0" />
               {error}
             </motion.div>
           )}
